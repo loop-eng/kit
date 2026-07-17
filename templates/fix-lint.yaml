@@ -1,0 +1,27 @@
+name: fix-lint
+description: "Fix all linting errors and warnings in the project"
+tags: [lint, fix, common]
+goal: |
+  Find and fix all linting errors and warnings.
+  Run the linter with zero-warning mode to verify.
+  Fix root causes — do not add disable comments.
+verification:
+  command: "npx eslint . --max-warnings=0"
+  description: "Linter reports zero errors and warnings"
+budget:
+  suggested_usd: 10
+  suggested_iterations: 10
+agent_instructions:
+  claude-code: |
+    ## Loop Instructions
+    - Run `npx eslint . --max-warnings=0` to find all issues
+    - Fix issues one rule at a time (e.g., all no-unused-vars first)
+    - Do not add eslint-disable comments — fix the root cause
+    - Re-run the linter after each batch of fixes
+    - Stop when zero errors and zero warnings remain
+  codex: |
+    Fix linting errors. Verify with `eslint . --max-warnings=0`.
+    Do not suppress with disable comments — fix root causes.
+  gemini: |
+    Fix linting errors. Verify with `eslint . --max-warnings=0`.
+    Do not suppress with disable comments — fix root causes.

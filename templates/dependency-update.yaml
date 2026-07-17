@@ -1,0 +1,26 @@
+name: dependency-update
+description: "Update outdated dependencies to their latest compatible versions"
+tags: [dependencies, update, maintenance]
+goal: |
+  Update outdated dependencies one at a time.
+  Run the full test suite after each update to catch breaking changes.
+  Skip major version bumps that require migration work.
+verification:
+  command: "npm test"
+  description: "Full test suite passes after updates"
+budget:
+  suggested_usd: 15
+  suggested_iterations: 20
+agent_instructions:
+  claude-code: |
+    ## Loop Instructions
+    - Run `npm outdated` to identify outdated packages
+    - Update one package at a time: `npm install package@latest`
+    - Run the full test suite after each update
+    - If tests fail, check the changelog for breaking changes
+    - Skip packages with major version bumps (handle separately)
+    - Stop when all safe updates are applied
+  codex: |
+    Update outdated dependencies one at a time. Verify with test suite.
+  gemini: |
+    Update outdated dependencies one at a time. Verify with test suite.

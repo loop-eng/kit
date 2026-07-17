@@ -1,0 +1,24 @@
+name: migrate-api
+description: "Migrate deprecated API calls to their modern replacements"
+tags: [migration, api, refactor]
+goal: |
+  Find all uses of deprecated APIs and migrate them to modern replacements.
+  Ensure the build and test suite pass after each migration.
+verification:
+  command: "npm test"
+  description: "Build and tests pass after migration"
+budget:
+  suggested_usd: 20
+  suggested_iterations: 15
+agent_instructions:
+  claude-code: |
+    ## Loop Instructions
+    - Search for deprecated API usage patterns
+    - Migrate one API at a time to reduce risk
+    - Run the full test suite after each migration
+    - Check for breaking changes in the migration guide
+    - Verify no regressions in existing functionality
+  codex: |
+    Migrate deprecated API calls. Verify with build + tests.
+  gemini: |
+    Migrate deprecated API calls. Verify with build + tests.

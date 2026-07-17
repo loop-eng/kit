@@ -1,0 +1,27 @@
+name: fix-types
+description: "Fix all TypeScript compilation errors in the project"
+tags: [typescript, fix, common]
+goal: |
+  Find and fix all TypeScript compilation errors.
+  Run `tsc --noEmit` to verify. Do not suppress errors
+  with `@ts-ignore` or `any` — fix the root cause.
+verification:
+  command: "npx tsc --noEmit"
+  description: "TypeScript compiles without errors"
+budget:
+  suggested_usd: 10
+  suggested_iterations: 10
+agent_instructions:
+  claude-code: |
+    ## Loop Instructions
+    - Run `tsc --noEmit` to find all errors
+    - Fix errors one file at a time, starting with files that have the fewest errors
+    - Re-run `tsc --noEmit` after each fix to track progress
+    - Do not use `@ts-ignore`, `any`, or type assertions to suppress errors
+    - Stop when zero errors remain
+  codex: |
+    Fix TypeScript errors. Verify with `tsc --noEmit`.
+    Do not suppress errors — fix root causes.
+  gemini: |
+    Fix TypeScript errors. Verify with `tsc --noEmit`.
+    Do not suppress errors — fix root causes.

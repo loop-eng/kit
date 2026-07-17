@@ -1,0 +1,28 @@
+name: add-tests
+description: "Add tests to untested files to reach a coverage target"
+tags: [test, coverage, common]
+goal: |
+  Identify source files without test coverage and add meaningful tests.
+  Focus on testing behavior, not implementation details.
+  Aim for >80% line coverage on touched files.
+verification:
+  command: "npm test"
+  description: "All tests pass"
+budget:
+  suggested_usd: 20
+  suggested_iterations: 15
+agent_instructions:
+  claude-code: |
+    ## Loop Instructions
+    - Identify source files without corresponding test files
+    - Write tests that cover the public API of each module
+    - Test behavior, not implementation — mock external dependencies only
+    - Run the test suite after adding each test file
+    - Prioritize: utilities > business logic > UI components
+    - Stop when all source files have test coverage
+  codex: |
+    Add tests for untested files. Verify with `npm test`.
+    Test behavior, not implementation.
+  gemini: |
+    Add tests for untested files. Verify with `npm test`.
+    Test behavior, not implementation.

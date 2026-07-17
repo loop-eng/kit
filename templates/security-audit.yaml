@@ -1,0 +1,25 @@
+name: security-audit
+description: "Find and fix security vulnerabilities reported by audit tools"
+tags: [security, audit, fix]
+goal: |
+  Run security audit tools and fix all high/critical vulnerabilities.
+  Update vulnerable dependencies or apply patches as needed.
+verification:
+  command: "npm audit --audit-level=high"
+  description: "No high or critical vulnerabilities"
+budget:
+  suggested_usd: 15
+  suggested_iterations: 10
+agent_instructions:
+  claude-code: |
+    ## Loop Instructions
+    - Run `npm audit` to identify vulnerabilities
+    - Fix high and critical vulnerabilities first
+    - Use `npm audit fix` for automatic fixes when safe
+    - For manual fixes, check if a patched version exists
+    - Run tests after each fix to verify no regressions
+    - Stop when `npm audit --audit-level=high` reports zero issues
+  codex: |
+    Fix security vulnerabilities. Verify with `npm audit --audit-level=high`.
+  gemini: |
+    Fix security vulnerabilities. Verify with `npm audit --audit-level=high`.
