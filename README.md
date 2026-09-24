@@ -1,6 +1,6 @@
 # @loop-eng/kit
 
-> Create production-ready agent loops in 30 seconds — zero to loop with one command.
+> Scaffold a production-ready agent loop — CLAUDE.md, verification gates, budget caps, and LTF traces — in one command.
 
 [![CI](https://github.com/loop-eng/kit/actions/workflows/ci.yml/badge.svg)](https://github.com/loop-eng/kit/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/@loop-eng/kit)](https://www.npmjs.com/package/@loop-eng/kit)
@@ -16,10 +16,8 @@ Setting up a production-quality agent loop takes 30-60 minutes per project: read
 npx @loop-eng/kit init
 ```
 
-Five questions. Six files. Production-ready loop.
-
 ```
-  ┌  @loop-eng/kit v0.1
+  ┌  @loop-eng/kit
   │
   ◇  What's the task?
   │  Fix all TypeScript errors in src/
@@ -31,21 +29,29 @@ Five questions. Six files. Production-ready loop.
   │  ● $20 (feature work)
   │
   ◇  Which agent?
-  │  ● Claude Code
+  │  ○ Claude Code   ○ Codex CLI   ○ Gemini CLI   ● All (multi-agent)
   │
   ◇  Iteration limit?
   │  ● 10 (standard)
   │
   ◆  Files created
-  │  ✓ CLAUDE.md
-  │  ✓ .claude/hooks/verify.sh
-  │  ✓ .loop/goal.md
-  │  ✓ .loop/budget.yaml
-  │  ✓ .loop/ltf.config.yaml
-  │  ✓ .loop/state.md
+  │  ✓ CLAUDE.md   ✓ AGENTS.md   ✓ GEMINI.md   ✓ .cursorrules
+  │  ✓ .loop/verify.sh          ✓ .claude/hooks/verify.sh
+  │  ✓ .loop/goal.md            ✓ .loop/budget.yaml
+  │  ✓ .loop/ltf.config.yaml    ✓ .loop/kit.json
   │
-  └  Run claude to start your loop
+  └  Run claude / codex / gemini / cursor to start your loop
 ```
+
+## Why trust this
+
+This project runs an unusually blunt audit process on itself: every phase of implementation
+goes through adversarial code review before shipping, and every finding — including the
+ones that turned out to be false alarms — is logged in [`FINDINGS.md`](FINDINGS.md). That
+file currently documents 16 real bugs found and fixed (including a critical one caught by
+the project's own test suite before it ever shipped: a verify command containing a plain
+`exit` call would silently kill the entire verification script). If you want evidence this
+was actually tested rather than just described, that file is where to look.
 
 ## Features
 
@@ -53,12 +59,12 @@ Five questions. Six files. Production-ready loop.
 |---------|-------------|
 | Interactive wizard | Clack-powered prompts — 5 questions, beautiful UI |
 | Auto-detection | Detects stack (TS/JS/Python/Go/Rust), test runner, installed agents |
-| Cross-agent support | Generates configs for Claude Code, Codex CLI, Gemini CLI, Cursor |
+| Multi-agent scaffolding | Generate configs for Claude Code, Codex CLI, Gemini CLI, and Cursor in one run |
 | Template library | 6 built-in templates for common tasks |
-| Verification gates | Auto-generates hook scripts that enforce pass/fail |
-| Budget enforcement | Cost caps, iteration limits, convergence criteria |
-| LTF integration | Every loop emits LTF traces by default |
-| Loop readiness score | `kit score` rates your loop setup 0-100 |
+| Verification gates | Auto-generates a hook script that enforces pass/fail and traces every run |
+| Budget configuration | Cost caps, iteration limits, convergence criteria |
+| LTF trace emission | Every verification run appends a real, spec-shaped `.loop/trace.ltf.jsonl` event |
+| Loop readiness score | `kit score` rates your loop setup 0-100, with multi-agent-aware scoring |
 | Loop status | `kit status` shows progress from LTF traces |
 
 ## Installation
@@ -71,15 +77,22 @@ npx @loop-eng/kit init
 npm install -g @loop-eng/kit
 ```
 
+**Windows:** the generated verification hook is a bash script. Install Git for Windows
+(includes Git Bash) or use WSL — `kit init` will warn you at scaffold time if neither is
+detected.
+
 ## Commands
 
 ### `kit init` — Scaffold a loop
 
 ```bash
-kit init                        # Interactive wizard
-kit init --template fix-types   # Use a specific template
-kit init --yes                  # Accept all defaults (non-interactive)
-kit init --dir ./my-project     # Target a specific directory
+kit init                                  # Interactive wizard
+kit init --template fix-types             # Use a specific template
+kit init --yes                            # Accept all defaults (non-interactive)
+kit init --agent codex                    # Scaffold for a single agent, skipping the wizard prompt
+kit init --agent claude-code,codex        # Scaffold for multiple specific agents
+kit init --agent all                      # Scaffold for all 4 supported agents
+kit init --dir ./my-project               # Target a specific directory
 ```
 
 ### `kit templates` — Browse templates
@@ -100,6 +113,8 @@ kit templates --search security # Search by name or tag
 | `dependency-update` | Update outdated deps | Full test suite |
 | `security-audit` | Fix vulnerabilities | `npm audit` |
 
+Want to add one? See [CONTRIBUTING.md](CONTRIBUTING.md#adding-a-template).
+
 ### `kit score` — Rate loop readiness
 
 ```bash
@@ -107,7 +122,9 @@ kit score                       # Score current project
 kit score --dir ./my-project    # Score a specific directory
 ```
 
-Checks for: agent config, goal definition, verification gate, budget config, state tracking, LTF config, stack detection, test runner, installed agents, convergence criteria.
+Checks for: agent config (proportional credit across all scaffolded agents), goal
+definition, verification gate, budget config, state tracking, LTF config, stack detection,
+test runner, installed agents, convergence criteria.
 
 ### `kit status` — Show loop progress
 
@@ -116,22 +133,27 @@ kit status                      # Show loop status
 kit status --dir ./my-project   # Status for a specific directory
 ```
 
-Shows: current iteration, loop state, budget remaining, LTF trace summary (cost, tokens, duration).
+Shows: current iteration, loop state, budget remaining, and a real LTF trace summary
+(duration, and cost/tokens if your agent self-reports them — kit's own verification hook
+can only observe pass/fail and timing, not model usage; see [LTF trace emission](#ltf-trace-emission) below).
 
 ## Generated Files
 
 ```
 project/
-├── CLAUDE.md               # Loop instructions for the agent
+├── CLAUDE.md / AGENTS.md / GEMINI.md / .cursorrules   # One per scaffolded agent
 ├── .claude/
 │   └── hooks/
-│       └── verify.sh       # Verification gate script
+│       └── verify.sh       # Convention copy for Claude Code / Cursor users
 ├── .loop/
+│   ├── verify.sh           # The verification gate + LTF trace emitter (shared by all agents)
 │   ├── goal.md             # Goal definition
-│   ├── state.md            # Loop state tracking
+│   ├── state.md            # Loop state tracking (agent-maintained)
 │   ├── budget.yaml         # Budget caps + convergence criteria
-│   └── ltf.config.yaml     # LTF trace emission config
-└── .gitignore              # Updated with .loop/state.md
+│   ├── ltf.config.yaml     # What the LTF trace actually captures (and doesn't)
+│   ├── kit.json            # Records which agents were scaffolded, for `kit score`
+│   └── trace.ltf.jsonl     # Generated at runtime — gitignored
+└── .gitignore              # Updated with .loop/state.md and the trace files
 ```
 
 ### Budget Configuration
@@ -152,6 +174,24 @@ ltf:
   enabled: true
   output: .loop/trace.ltf.jsonl
 ```
+
+Budget caps and convergence criteria are generated as configuration for your agent to
+follow — kit does not yet run a supervising process that enforces them at runtime (that
+would be a `kit run` command; see [Architecture](#architecture) for what's built today).
+
+### LTF Trace Emission
+
+The generated `.loop/verify.sh` appends one real [LTF](https://github.com/loop-eng/ltf)
+event to `.loop/trace.ltf.jsonl` every time verification runs — a `verify`-phase event with
+the command, exit code, and duration, plus a `terminate` event and a `loop_summary` the
+first time verification passes. This works identically across all four agents because it
+lives in the shared verification hook, not in agent-specific instrumentation.
+
+What it can't capture: `cost_usd` and token counts. A verification script has no visibility
+into the agent's own model calls — that data can only come from the agent itself, and no
+shipped agent CLI currently exposes it through a mechanism kit's hook can observe. If
+`kit status` shows a cost or token figure, your agent is self-reporting it; if it doesn't,
+that's expected, not a bug.
 
 ## Auto-Detection
 
@@ -178,17 +218,9 @@ src/
 └── utils/         # File system and git helpers
 ```
 
-## Competitive Landscape
-
-| Feature | kit | loop-init | spec-kit | claude-code-templates |
-|---------|-----|-----------|----------|----------------------|
-| Interactive wizard | ✓ (Clack) | ✗ | ✗ | ✗ |
-| Loop-specific output | ✓ | ✓ | ✗ | ✗ |
-| Cross-agent support | ✓ (4 agents) | Partial | ✓ | Claude only |
-| LTF integration | ✓ | ✗ | ✗ | ✗ |
-| Verification gates | Generated | Scored | Manual | Manual |
-| Budget enforcement | Generated | Estimated | ✗ | ✗ |
-| Template ecosystem | ✓ (6 built-in) | 7 patterns | 3 templates | 600+ |
+Kit is a one-shot scaffolding CLI: it generates files and exits. It does not stay running
+while your agent works, and does not (yet) supervise the loop itself — that's a documented
+gap, not a hidden one.
 
 ## Development
 
@@ -201,6 +233,8 @@ npm run test         # Run tests with vitest
 bash demo/trial.sh   # Run interactive demo
 bash demo/test_e2e.sh # Run E2E test suite
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full setup and template contribution guide.
 
 ## Part of the Loop Engineering Ecosystem
 

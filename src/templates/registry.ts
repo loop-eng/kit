@@ -49,7 +49,9 @@ export function loadBuiltinTemplates(): Template[] {
           typeof parsed?.goal === "string" &&
           typeof parsed?.verification?.command === "string" &&
           typeof parsed?.budget?.suggested_usd === "number" &&
-          typeof parsed?.budget?.suggested_iterations === "number"
+          parsed.budget.suggested_usd > 0 &&
+          typeof parsed?.budget?.suggested_iterations === "number" &&
+          parsed.budget.suggested_iterations > 0
         ) {
           if (!Array.isArray(parsed.tags)) parsed.tags = [];
           if (!parsed.agent_instructions) parsed.agent_instructions = {};

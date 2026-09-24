@@ -1,6 +1,6 @@
 import { chmodSync } from "node:fs";
 import { join } from "node:path";
-import type { WizardAnswers, DetectionResult, Template } from "../types.js";
+import type { WizardAnswers, DetectionResult, Template, AgentType } from "../types.js";
 import type { VerificationInfo } from "../detectors/verification.js";
 import { generateClaudeMd } from "./claude-md.js";
 import { generateCodexMd } from "./codex-md.js";
@@ -11,6 +11,7 @@ import { generateBudget } from "./budget.js";
 import { generateLtfConfig } from "./ltf-config.js";
 import { ensureGitignore } from "../utils/git.js";
 import { writeFileSafe, fileExists } from "../utils/fs.js";
+import { LTF_TRACE_PATH, LTF_TRACER_STATE_PATH } from "../utils/ltf-paths.js";
 
 export interface GenerateOptions {
   dir: string;
@@ -28,9 +29,12 @@ export async function generateAll(opts: GenerateOptions): Promise<string[]> {
 
   const verifyCommand = resolveVerifyCommand(opts);
 
-  const agentFile = generateAgentConfig(opts, verifyCommand);
-  writeFileSafe(join(dir, agentFile.path), agentFile.content);
-  files.push(agentFile.path);
+  const agentFiles = generateAgentConfigs(opts, verifyCommand);
+  for (const agentFile of agentFiles) {
+    writeFileSafe(join(dir, agentFile.path), agentFile.content);
+    files.push(agentFile.path);
+  }
+
   const hookContent = generateHooks(verifyCommand);
 
   const loopHookPath = ".loop/verify.sh";
@@ -38,7 +42,13 @@ export async function generateAll(opts: GenerateOptions): Promise<string[]> {
   chmodSync(join(dir, loopHookPath), 0o755);
   files.push(loopHookPath);
 
-  if (answers.agent === "claude-code" || answers.agent === "cursor") {
+  // .claude/hooks/verify.sh is a convention-only file (not registered with
+  // Claude Code's own hook system via .claude/settings.json) — kept for
+  // claude-code/cursor users who look there by convention, but never
+  // extended to Codex/Gemini, which have their own distinct, incompatible
+  // native hook mechanisms. Writing a bash script at a path they don't
+  // read would be misleading, not just redundant.
+  if (answers.agents.includes("claude-code") || answers.agents.includes("cursor")) {
     const claudeHookPath = ".claude/hooks/verify.sh";
     writeFileSafe(join(dir, claudeHookPath), hookContent);
     chmodSync(join(dir, claudeHookPath), 0o755);
@@ -65,43 +75,78 @@ export async function generateAll(opts: GenerateOptions): Promise<string[]> {
   writeFileSafe(join(dir, ltfPath), ltfContent);
   files.push(ltfPath);
 
+  // Records which agents were selected at scaffold time — `kit score`
+  // uses this to grade multi-agent parity, and it's ordinary project
+  // configuration (like budget.yaml), not transient runtime state, so
+  // it's intentionally tracked in git, not gitignored.
+  const manifestPath = ".loop/kit.json";
+  writeFileSafe(join(dir, manifestPath), JSON.stringify({ agents: answers.agents }, null, 2) + "\n");
+  files.push(manifestPath);
+
   if (!fileExists(join(dir, ".loop/state.md"))) {
     writeFileSafe(join(dir, ".loop/state.md"), generateStateMd());
     files.push(".loop/state.md");
   }
 
-  ensureGitignore(dir, [".loop/state.md", ".loop/trace.ltf.jsonl"]);
+  ensureGitignore(dir, [".loop/state.md", LTF_TRACE_PATH, LTF_TRACER_STATE_PATH]);
 
   return files;
 }
 
-function generateAgentConfig(opts: GenerateOptions, verifyCmd: string): { path: string; content: string } {
+function agentConfigPath(agent: AgentType): string {
+  switch (agent) {
+    case "claude-code":
+      return "CLAUDE.md";
+    case "codex":
+      return "AGENTS.md";
+    case "gemini":
+      return "GEMINI.md";
+    case "cursor":
+      return ".cursorrules";
+  }
+}
+
+function agentInstructionsFor(template: Template | undefined, agent: AgentType): string | null {
+  if (!template?.agent_instructions) return null;
+  // No shipped template defines cursor-specific instructions today —
+  // Cursor's .cursorrules format is close enough to CLAUDE.md's that
+  // reusing claude-code's instructions is a reasonable default rather
+  // than shipping an instructions-less file.
+  if (agent === "cursor") {
+    return template.agent_instructions.cursor ?? template.agent_instructions["claude-code"] ?? null;
+  }
+  return template.agent_instructions[agent] ?? null;
+}
+
+function generateAgentConfigs(
+  opts: GenerateOptions,
+  verifyCmd: string,
+): Array<{ path: string; content: string }> {
   const { answers, detection, verification, template } = opts;
 
-  const templateInstructions = template?.agent_instructions?.[answers.agent] ?? null;
+  return answers.agents.map((agent) => {
+    const templateInstructions = agentInstructionsFor(template, agent);
+    const path = agentConfigPath(agent);
 
-  switch (answers.agent) {
-    case "claude-code":
-      return {
-        path: "CLAUDE.md",
-        content: generateClaudeMd(answers.task, verifyCmd, detection, verification, templateInstructions),
-      };
-    case "codex":
-      return {
-        path: "AGENTS.md",
-        content: generateCodexMd(answers.task, verifyCmd, templateInstructions),
-      };
-    case "gemini":
-      return {
-        path: "GEMINI.md",
-        content: generateGeminiMd(answers.task, verifyCmd, templateInstructions),
-      };
-    case "cursor":
-      return {
-        path: ".cursorrules",
-        content: generateClaudeMd(answers.task, verifyCmd, detection, verification, templateInstructions),
-      };
-  }
+    switch (agent) {
+      case "claude-code":
+      case "cursor":
+        return {
+          path,
+          content: generateClaudeMd(answers.task, verifyCmd, detection, verification, templateInstructions),
+        };
+      case "codex":
+        return {
+          path,
+          content: generateCodexMd(answers.task, verifyCmd, templateInstructions),
+        };
+      case "gemini":
+        return {
+          path,
+          content: generateGeminiMd(answers.task, verifyCmd, templateInstructions),
+        };
+    }
+  });
 }
 
 function resolveVerifyCommand(opts: GenerateOptions): string {

@@ -1,4 +1,5 @@
 import { stringify } from "yaml";
+import { LTF_TRACE_PATH } from "../utils/ltf-paths.js";
 
 interface BudgetOptions {
   maxCostUsd: number;
@@ -25,7 +26,7 @@ export function generateBudget(opts: BudgetOptions): string {
     },
     ltf: {
       enabled: true,
-      output: ".loop/trace.ltf.jsonl",
+      output: LTF_TRACE_PATH,
     },
   };
 

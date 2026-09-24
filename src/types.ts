@@ -30,8 +30,12 @@ export interface WizardAnswers {
   verification: VerificationMethod;
   customCommand?: string;
   budget: BudgetTier;
-  agent: AgentType;
+  agents: AgentType[];
   iterations: number;
+}
+
+export interface KitManifest {
+  agents: AgentType[];
 }
 
 export interface BudgetConfig {

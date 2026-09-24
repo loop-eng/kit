@@ -4,7 +4,7 @@
 
 3 audit passes produced 30 raw findings. After honest re-evaluation:
 
-- **15 real bugs** — fixed
+- **18 real bugs** — fixed (15 from the v0.1.0 audit + 1 found during v1.0.0 Phase 1 implementation + 2 found during an independent end-to-end fidelity recheck of the v1.0.0 phases). The recheck additionally closed 2 test-coverage gaps where production code was already correct but had no regression test proving it.
 - **4 severity-overstated** — fixed but reclassified
 - **6 code quality improvements** — applied but not bugs
 - **4 theoretical/debatable** — applied as defensive hardening
@@ -161,3 +161,56 @@ Improvements applied:          14 (overstated + quality + theoretical)
 Duplicates:                      1
 Total changes:                  30 (all applied, all correct)
 ```
+
+---
+
+## v1.0.0 Phase 1 (LTF Trace Integration) — bug found during implementation
+
+### 31. CRITICAL: `exit` in a custom verify command terminates the whole script before tracing
+
+- **File:** `src/generators/hooks.ts`
+- **Severity:** Critical
+- **Description:** `${verifyCommand}` was spliced directly into the generated script as literal bash source, unwrapped. `set +e`/`set -e` only controls auto-exit-on-nonzero-return; it does not change the behavior of the `exit` builtin, which always terminates the *current* shell when invoked. Discovered via adversarial unit testing using `exit 0`/`exit 1` as a stand-in verify command — the script terminated immediately at that line, never reaching `exit_code=$?`, duration calculation, or LTF trace emission. This is a real risk for Kit's "custom command" verification mode, where a user-authored script could plausibly end with an explicit `exit` call (a common shell idiom).
+- **Fix:** Wrapped the verify command in a subshell: `( ${verifyCommand} )`. An `exit` inside a subshell only terminates the subshell; the parent script's `exit_code=$?` correctly captures its exit status. No behavior change for the overwhelming majority of real verify commands (test runners, build tools) since subshell execution is observationally identical for stdout/stderr/exit-code.
+- **Status:** FIXED — caught before merge via the adversarial-testing step of Phase 1's own verification loop, not by a user report.
+
+---
+
+## End-to-End Fidelity Recheck (v1.0.0 phases) — 2 real bugs, 2 test-coverage gaps
+
+After all 5 v1.0.0 phases were implemented, 5 independent verification agents re-checked each
+phase's actual code against its planning + review documents. Two genuine production bugs and
+two test-coverage gaps (production code already correct, but with no regression test proving
+it) were found and fixed.
+
+### 32. HIGH: `loop_summary` re-emitted on every successful re-run, not just the first
+
+- **File:** `src/generators/hooks.ts`
+- **Severity:** High
+- **Description:** `ltf-config.ts`'s generated comment explicitly promised `loop_summary` is "emitted once, only on the first passing verification" — but the actual condition (`if [ "$result_status" = "success" ]`) fired unconditionally on every successful run. Confirmed empirically: 3 consecutive successful `verify.sh` invocations produced 3 separate `terminate`+`loop_summary` pairs sharing one `loop_id`, not one. A user re-running verification after the loop already succeeded (e.g. a periodic CI re-check) would accumulate multiple summary records, directly contradicting the documented, spec-aligned behavior (SPEC.md: loop_summary is a one-time terminal record per loop).
+- **Fix:** Added a `summarized` flag to the tracer's `.ltf-state.json`, set to `1` the first time a successful run occurs. Subsequent successful runs still emit a `verify` event but skip the `terminate`/`loop_summary` pair once `summarized` is already `1`.
+- **Status:** FIXED. Regression test added: `hooks.test.ts` — "emits loop_summary exactly once, even after multiple successful re-runs."
+
+### 33. MEDIUM: `--agent` flag output order was insertion order, not canonical
+
+- **File:** `src/cli/init.ts`
+- **Severity:** Medium
+- **Description:** The Phase 2 plan specified canonical agent ordering (matching `ALL_AGENTS`'s declared order) regardless of how a user lists agents in `--agent`, so generated file lists and `.loop/kit.json` are deterministic. `parseAgentFlag` instead preserved insertion order: `--agent gemini,codex` produced `["gemini", "codex"]` instead of the canonical `["codex", "gemini"]`. Cosmetic only (no missing files, no duplicates, no crash) but a real deviation from spec.
+- **Fix:** `parseAgentFlag` now collects requested agents into a `Set` and filters `ALL_AGENTS` by membership, guaranteeing canonical output order.
+- **Status:** FIXED. Regression test added: `init.test.ts` — "normalizes output to canonical order regardless of input order."
+
+### 34. Test-coverage gap: FINDINGS #25's regression test never actually checked the exit code
+
+- **File:** `src/cli/__tests__/init.test.ts`
+- **Severity:** N/A (test gap, not a production bug — `process.exit(130)` was already correct in `src/cli/init.ts`)
+- **Description:** A describe block was literally titled "regression: FINDINGS #25, exit 130 not 0," but every test inside only asserted `runWizard()` returns `null` on cancellation — never that the CLI actually calls `process.exit(130)`. The real exit call lives in the Command action handler, which no test imported or exercised. A revert of `process.exit(130)` back to `process.exit(0)` would have passed the entire suite.
+- **Fix:** Extracted the inline cancel-and-exit logic into standalone exported functions (`exitOnWizardCancel`, `exitOnInvalidDir`, `exitOnInvalidAgentFlag`, `exitOnTemplateNotFound`) and added tests that mock `process.exit` and assert it's called with the correct code. Verified via mutation testing: reverting `exitOnWizardCancel` to `process.exit(0)` now fails the new test.
+- **Status:** FIXED.
+
+### 35. Test-coverage gap: `warnIfBashUnavailable`'s actual warning-firing branches were untested
+
+- **File:** `src/cli/__tests__/init.test.ts`
+- **Severity:** N/A (test gap — production logic in `src/cli/init.ts` was already correct)
+- **Description:** Only the non-Windows no-op branch had a test. The two Windows branches — including the one that produces the actual user-visible warning — had zero coverage.
+- **Fix:** Added `vi.mock` for `commandExists` and two new tests covering win32-with-bash-absent (warning fires) and win32-with-bash-present (no warning).
+- **Status:** FIXED.

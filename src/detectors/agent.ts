@@ -32,7 +32,7 @@ export function detectAgent(dir: string): AgentType[] {
   return agents;
 }
 
-function commandExists(cmd: string): boolean {
+export function commandExists(cmd: string): boolean {
   try {
     const lookup = process.platform === "win32" ? "where" : "which";
     execFileSync(lookup, [cmd], { stdio: "ignore" });

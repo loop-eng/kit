@@ -176,6 +176,7 @@ echo -e "${BOLD}9. Gitignore management${RESET}"
 assert_file ".gitignore created" "$T1_DIR/.gitignore"
 assert_contains ".gitignore has state.md" "$T1_DIR/.gitignore" ".loop/state.md"
 assert_contains ".gitignore has trace file" "$T1_DIR/.gitignore" ".loop/trace.ltf.jsonl"
+assert_contains ".gitignore has LTF tracer state file" "$T1_DIR/.gitignore" ".loop/.ltf-state.json"
 echo ""
 
 # ─── Test 10: Idempotent init ───
@@ -188,6 +189,124 @@ echo -e "${BOLD}11. CLI help and version${RESET}"
 assert_output_contains "help shows all commands" "init" kit --help
 EXPECTED_VERSION=$(node -p "require('$PROJECT_DIR/package.json').version")
 assert_output_contains "version flag works" "$EXPECTED_VERSION" kit --version
+echo ""
+
+# ─── Test 12: --dir pointing to a file (not a directory) ───
+echo -e "${BOLD}12. --dir edge cases${RESET}"
+T12_FILE=$(mktemp)
+assert_output_contains "init rejects --dir pointing to a file" "not a directory" kit init --yes --dir "$T12_FILE"
+assert_output_contains "score rejects nonexistent --dir" "not found" kit score --dir "/nonexistent/kit-e2e-path"
+assert_output_contains "status rejects nonexistent --dir" "not found" kit status --dir "/nonexistent/kit-e2e-path"
+rm -f "$T12_FILE"
+echo ""
+
+# ─── Test 13: LTF trace emission — pass path ───
+echo -e "${BOLD}13. LTF trace emission (pass path)${RESET}"
+T13_DIR="$DEMO_DIR/t13"
+mkdir -p "$T13_DIR"
+# sleep 1 guarantees duration_ms > 0 even under the whole-second-granularity
+# fallback used on platforms without GNU date's %N (e.g. macOS/BSD date).
+echo '{"name":"t13","scripts":{"test":"sleep 1 && exit 0"}}' > "$T13_DIR/package.json"
+kit init --yes --dir "$T13_DIR" > /dev/null 2>&1
+(cd "$T13_DIR" && bash .loop/verify.sh > /dev/null 2>&1)
+
+assert_file "trace.ltf.jsonl created" "$T13_DIR/.loop/trace.ltf.jsonl"
+assert_contains "trace has a verify-phase success line" "$T13_DIR/.loop/trace.ltf.jsonl" '"phase":"verify".*"status":"success"'
+assert_contains "trace has a loop_summary line" "$T13_DIR/.loop/trace.ltf.jsonl" '"type":"loop_summary"'
+assert_pass "every trace line is valid JSON" node -e "
+  require('fs').readFileSync('$T13_DIR/.loop/trace.ltf.jsonl', 'utf-8')
+    .trim().split('\n').forEach(l => JSON.parse(l));
+"
+echo ""
+
+# ─── Test 14: LTF trace emission — fail path ───
+echo -e "${BOLD}14. LTF trace emission (fail path)${RESET}"
+T14_DIR="$DEMO_DIR/t14"
+mkdir -p "$T14_DIR"
+echo '{"name":"t14","scripts":{"test":"exit 1"}}' > "$T14_DIR/package.json"
+kit init --yes --dir "$T14_DIR" > /dev/null 2>&1
+(cd "$T14_DIR" && bash .loop/verify.sh > /dev/null 2>&1) || true
+
+assert_contains "failed verification still writes a trace line" "$T14_DIR/.loop/trace.ltf.jsonl" '"status":"fail"'
+LINE_COUNT=$(wc -l < "$T14_DIR/.loop/trace.ltf.jsonl" | tr -d ' ')
+if [ "$LINE_COUNT" = "1" ]; then
+  echo -e "  ${GREEN}✓${RESET} exactly one line on failure (no terminate/summary)"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${RESET} exactly one line on failure (no terminate/summary) — got $LINE_COUNT lines"
+  FAIL=$((FAIL + 1))
+fi
+echo ""
+
+# ─── Test 15: iteration + loop_id continuity, .loop and .claude/hooks converge ───
+echo -e "${BOLD}15. Iteration continuity across verify.sh and .claude/hooks/verify.sh${RESET}"
+T15_DIR="$DEMO_DIR/t15"
+mkdir -p "$T15_DIR"
+echo '{"name":"t15","scripts":{"test":"exit 0"}}' > "$T15_DIR/package.json"
+kit init --yes --dir "$T15_DIR" > /dev/null 2>&1
+(cd "$T15_DIR" && bash .loop/verify.sh > /dev/null 2>&1)
+(cd "$T15_DIR" && bash .claude/hooks/verify.sh > /dev/null 2>&1)
+
+assert_pass "no second trace.ltf.jsonl created under .claude" test ! -f "$T15_DIR/.claude/hooks/trace.ltf.jsonl"
+UNIQUE_LOOP_IDS=$(node -e "
+  const lines = require('fs').readFileSync('$T15_DIR/.loop/trace.ltf.jsonl', 'utf-8').trim().split('\n');
+  console.log(new Set(lines.map(l => JSON.parse(l).loop_id)).size);
+")
+if [ "$UNIQUE_LOOP_IDS" = "1" ]; then
+  echo -e "  ${GREEN}✓${RESET} both script copies share the same loop_id"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${RESET} both script copies share the same loop_id — found $UNIQUE_LOOP_IDS distinct ids"
+  FAIL=$((FAIL + 1))
+fi
+echo ""
+
+# ─── Test 16: kit status reflects real traces ───
+echo -e "${BOLD}16. kit status reflects real trace data${RESET}"
+assert_output_contains "status shows Traces line" "Traces:" kit status --dir "$T13_DIR"
+assert_output_contains "status shows Duration line" "Duration:" kit status --dir "$T13_DIR"
+echo ""
+
+# ─── Test 17: multi-agent generation (--agent all) ───
+echo -e "${BOLD}17. Multi-agent generation${RESET}"
+T17_DIR="$DEMO_DIR/t17"
+mkdir -p "$T17_DIR"
+echo '{"name":"t17"}' > "$T17_DIR/package.json"
+
+assert_pass "kit init --yes --agent all runs" kit init --yes --agent all --dir "$T17_DIR"
+assert_file "CLAUDE.md created" "$T17_DIR/CLAUDE.md"
+assert_file "AGENTS.md created" "$T17_DIR/AGENTS.md"
+assert_file "GEMINI.md created" "$T17_DIR/GEMINI.md"
+assert_file ".cursorrules created" "$T17_DIR/.cursorrules"
+assert_file "kit.json manifest created" "$T17_DIR/.loop/kit.json"
+assert_contains "manifest records all 4 agents" "$T17_DIR/.loop/kit.json" "cursor"
+assert_output_contains "score shows agent parity for multi-agent" "4/4 agents" kit score --dir "$T17_DIR"
+echo ""
+
+# ─── Test 18: partial multi-agent (comma-separated) ───
+echo -e "${BOLD}18. Partial multi-agent (--agent claude-code,codex)${RESET}"
+T18_DIR="$DEMO_DIR/t18"
+mkdir -p "$T18_DIR"
+echo '{"name":"t18"}' > "$T18_DIR/package.json"
+
+assert_pass "kit init --yes --agent claude-code,codex runs" kit init --yes --agent claude-code,codex --dir "$T18_DIR"
+assert_file "CLAUDE.md created" "$T18_DIR/CLAUDE.md"
+assert_file "AGENTS.md created" "$T18_DIR/AGENTS.md"
+assert_pass "GEMINI.md NOT created" test ! -f "$T18_DIR/GEMINI.md"
+assert_file ".claude/hooks/verify.sh created (claude-code selected)" "$T18_DIR/.claude/hooks/verify.sh"
+
+T18B_DIR="$DEMO_DIR/t18b"
+mkdir -p "$T18B_DIR"
+echo '{"name":"t18b"}' > "$T18B_DIR/package.json"
+kit init --yes --agent codex,gemini --dir "$T18B_DIR" > /dev/null 2>&1
+assert_pass "no .claude/hooks/verify.sh when claude-code/cursor not selected" test ! -f "$T18B_DIR/.claude/hooks/verify.sh"
+echo ""
+
+# ─── Test 19: --agent rejects invalid value ───
+echo -e "${BOLD}19. Invalid --agent value${RESET}"
+T19_DIR="$DEMO_DIR/t19"
+mkdir -p "$T19_DIR"
+assert_output_contains "invalid --agent shows error" "Invalid --agent value" kit init --yes --agent bogus --dir "$T19_DIR"
 echo ""
 
 # ─── Summary ───

@@ -4,6 +4,7 @@ import { resolve, join } from "node:path";
 import { existsSync } from "node:fs";
 import { fileExists, readFileSafe } from "../utils/fs.js";
 import { detectAll } from "../detectors/index.js";
+import type { AgentType, KitManifest } from "../types.js";
 
 interface ScoreItem {
   label: string;
@@ -73,7 +74,7 @@ export const scoreCommand = new Command("score")
     }
   });
 
-function evaluateReadiness(dir: string): ScoreItem[] {
+export function evaluateReadiness(dir: string): ScoreItem[] {
   const detection = detectAll(dir);
   const items: ScoreItem[] = [];
 
@@ -85,14 +86,25 @@ function evaluateReadiness(dir: string): ScoreItem[] {
     items.push({ label, maxPoints, points: present ? maxPoints : 0, present });
   };
 
-  check(
-    "Agent config (CLAUDE.md/AGENTS.md/GEMINI.md)",
-    15,
-    fileExists(join(dir, "CLAUDE.md")) ||
-      fileExists(join(dir, "AGENTS.md")) ||
-      fileExists(join(dir, "GEMINI.md")) ||
-      fileExists(join(dir, ".cursorrules")),
-  );
+  const manifest = readManifest(dir);
+  if (manifest && manifest.agents.length > 0) {
+    const present = manifest.agents.filter((a) => fileExists(join(dir, agentConfigFile(a))));
+    items.push({
+      label: `Agent config (${present.length}/${manifest.agents.length} agents)`,
+      maxPoints: 15,
+      points: Math.round((present.length / manifest.agents.length) * 15),
+      present: present.length === manifest.agents.length,
+    });
+  } else {
+    check(
+      "Agent config (CLAUDE.md/AGENTS.md/GEMINI.md)",
+      15,
+      fileExists(join(dir, "CLAUDE.md")) ||
+        fileExists(join(dir, "AGENTS.md")) ||
+        fileExists(join(dir, "GEMINI.md")) ||
+        fileExists(join(dir, ".cursorrules")),
+    );
+  }
 
   check(
     "Goal definition (.loop/goal.md)",
@@ -155,4 +167,29 @@ function evaluateReadiness(dir: string): ScoreItem[] {
   );
 
   return items;
+}
+
+function agentConfigFile(agent: AgentType): string {
+  switch (agent) {
+    case "claude-code":
+      return "CLAUDE.md";
+    case "codex":
+      return "AGENTS.md";
+    case "gemini":
+      return "GEMINI.md";
+    case "cursor":
+      return ".cursorrules";
+  }
+}
+
+function readManifest(dir: string): KitManifest | null {
+  const content = readFileSafe(join(dir, ".loop/kit.json"));
+  if (!content) return null;
+  try {
+    const parsed = JSON.parse(content) as Partial<KitManifest>;
+    if (!Array.isArray(parsed.agents)) return null;
+    return { agents: parsed.agents };
+  } catch {
+    return null;
+  }
 }
